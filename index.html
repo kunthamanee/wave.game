@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Wave Shooter — Prototype</title>
+<style>
+  :root{--bg:#0f2433;--panel:#123243;--accent:#ffd97d;--muted:#9fb6c7}
+  html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,"Noto Sans Thai",sans-serif;background:var(--bg);color:#fff}
+  .wrap{max-width:900px;margin:20px auto;padding:18px}
+  h1{margin:6px 0 14px;font-size:28px;color:var(--accent);text-align:center}
+  #game{background:linear-gradient(#08202a,#0b2b37);border-radius:12px;padding:12px;box-shadow:0 6px 20px rgba(0,0,0,.6)}
+  canvas{display:block;background:transparent;border-radius:8px;width:100%;height:360px}
+  .controls{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;align-items:center}
+  .panel{background:var(--panel);padding:10px;border-radius:8px;min-width:160px;flex:1}
+  label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+  input[type=range]{width:100%}
+  .row{display:flex;gap:10px;align-items:center}
+  .btn{background:var(--accent);border:none;color:#0b2630;padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:600}
+  .stat{font-size:14px;color:#e8f6fa}
+  .small{font-size:12px;color:var(--muted)}
+  .hud{display:flex;gap:10px;align-items:center;justify-content:center;margin-top:8px}
+  .badge{background:#0d3949;padding:6px 8px;border-radius:8px}
+  footer{margin-top:10px;color:var(--muted);font-size:13px;text-align:center}
+  @media (max-width:640px){canvas{height:260px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Wave Shooter — λ · f · v (Prototype)</h1>
+  <div id="game">
+    <canvas id="c" width="840" height="360"></canvas>
+
+    <div class="controls">
+      <div class="panel">
+        <label>เครื่องยิง — ความถี่ f (Hz)</label>
+        <div class="row">
+          <div class="stat" id="fDisplay">f = 50 Hz</div>
+          <div style="flex:1"></div>
+          <button class="btn" id="fireBtn">ยิง</button>
+        </div>
+        <div style="height:8px"></div>
+        <label>เลือกความยาวคลื่น λ (เมตร)</label>
+        <input id="lambdaRange" type="range" min="0.1" max="20" step="0.1" value="3">
+        <div class="row"><div class="stat">λ = <span id="lambdaDisplay">3.0</span> m</div><div style="flex:1"></div>
+          <div class="small">Tolerance: <span id="tolDisplay">5</span>%</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label>ตัวกลาง (medium) — เปลี่ยนอัตราเร็วคลื่นมาตรฐาน</label>
+        <div class="row" style="margin-bottom:8px">
+          <button class="btn" id="airBtn">Air</button>
+          <button class="btn" id="waterBtn">Water</button>
+          <button class="btn" id="steelBtn">Steel</button>
+        </div>
+        <div class="small">เปลี่ยนค่าอ้างอิง v0 (ใช้เป็นตัวช่วยปรับ balance ของด่าน)</div>
+        <div style="height:10px"></div>
+
+        <label>เกมสถานะ</label>
+        <div class="hud">
+          <div class="badge">Score: <span id="score">0</span></div>
+          <div class="badge">Lives: <span id="lives">3</span></div>
+          <div class="badge">Wave speed (anim): <span id="wSpeed">500</span> px/s</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label>คำอธิบายด่วน</label>
+        <div class="small">
+          - ศัตรูแต่ละตัวมีค่า <strong>v (m/s)</strong> ของมัน <br>
+          - ปืนมีความถี่ <strong>f</strong> (Hz) คงที่ (ปรับได้ในโค้ด) <br>
+          - ผู้เล่นเลือก <strong>λ</strong> (m) แล้วกดยิง → ถ้า λ ≈ v / f (ภายใน tolerance) → ชนะศัตรู<br>
+          - ศัตรูเคลื่อนเข้ามา หากถึงซ้าย = แพ้ (เสียชีวิต 1 ครั้ง)
+        </div>
+        <div style="height:10px"></div>
+        <label>ปรับ tolerance (%)</label>
+        <input id="tolRange" type="range" min="1" max="30" value="5">
+      </div>
+    </div>
+    <footer>โค้ดตัวอย่าง — เปิดไฟล์นี้ในเบราว์เซอร์ หรืออัปโหลดขึ้น GitHub Pages</footer>
+  </div>
+</div>
+
+<script>
+/* --- Game parameters --- */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+let f = 50; // Hz (fixed shooter frequency, editable)
+let lambda = parseFloat(document.getElementById('lambdaRange').value);
+let tolerancePercent = parseFloat(document.getElementById('tolRange').value);
+
+document.getElementById('fDisplay').textContent = 'f = ' + f + ' Hz';
+document.getElementById('lambdaDisplay').textContent = lambda.toFixed(1);
+document.getElementById('tolDisplay').textContent = tolerancePercent;
+
+/* animation wave speed in pixels/sec (purely visual) */
+let animWaveSpeed = 500;
+
+/* medium base speed (m/s) - affects enemy assigned v values scaling */
+const mediums = {
+  Air: 340,
+  Water: 1500,
+  Steel: 5000
+};
+let currentMedium = 'Air';
+
+/* Game state */
+let enemies = [];
+let score = 0;
+let lives = 3;
+let running = true;
+
+/* Utility: scale physical v (m/s) -> pixel speed for movement
+   We only need a mapping for gameplay feel */
+function vToPxPerSec(v_mps){
+  // simple scale so higher v moves faster on screen but keep playable
+  return Math.max(30, (v_mps / 100) * 30); // tuned empirically
+}
+
+/* Create enemies with random v around medium baseline */
+function spawnEnemy(){
+  const baseline = mediums[currentMedium];
+  // choose v within a range around baseline (random)
+  const v = Math.round((baseline * (0.4 + Math.random()*1.2))); // variable
+  const requiredLambda = v / f; // m
+  const y = 100 + Math.random()*160;
+  enemies.push({
+    x: W + 40, y,
+    v_mps: v,
+    pxSpeed: vToPxPerSec(v),
+    requiredLambda,
+    alive: true,
+    wobble: Math.random()*2
+  });
+}
+
+/* initial spawn */
+for(let i=0;i<3;i++) spawnEnemy();
+
+/* UI bindings */
+document.getElementById('lambdaRange').addEventListener('input', (e)=>{
+  lambda = parseFloat(e.target.value);
+  document.getElementById('lambdaDisplay').textContent = lambda.toFixed(1);
+});
+document.getElementById('tolRange').addEventListener('input', (e)=>{
+  tolerancePercent = parseFloat(e.target.value);
+  document.getElementById('tolDisplay').textContent = tolerancePercent;
+});
+document.getElementById('airBtn').addEventListener('click', ()=>{currentMedium='Air'; resetLevelForMedium();});
+document.getElementById('waterBtn').addEventListener('click', ()=>{currentMedium='Water'; resetLevelForMedium();});
+document.getElementById('steelBtn').addEventListener('click', ()=>{currentMedium='Steel'; resetLevelForMedium();});
+document.getElementById('fireBtn').addEventListener('click', playerFire);
+
+function resetLevelForMedium(){
+  enemies = [];
+  for(let i=0;i<3;i++) spawnEnemy();
+}
+
+/* firing logic */
+let activeWaves = []; // visual waves moving
+function playerFire(){
+  if(!running) return;
+  // create a visual sine wave projectile
+  activeWaves.push({
+    x: 60, // start near cannon
+    y: H/2,
+    lambda, // m (user choice)
+    phase: 0,
+    speed: animWaveSpeed,
+    life: 0
+  });
+  // We'll check hits when wave center crosses enemy.x
+}
+
+/* Game loop */
+let last = performance.now();
+function loop(t){
+  const dt = (t - last) / 1000; last = t;
+  // update enemies
+  for(const e of enemies){
+    if(!e.alive) continue;
+    e.x -= e.pxSpeed * dt;
+    e.wobble += dt*6;
+    // If enemy reaches left (x < 80) -> lose life and remove
+    if(e.x < 80){
+      e.alive = false;
+      lives -= 1;
+      document.getElementById('lives').textContent = lives;
+      if(lives <= 0){ running = false; showGameOver(); }
+    }
+  }
+
+  // update waves (visual)
+  for(const w of activeWaves){
+    w.x += w.speed * dt;
+    w.life += dt;
+  }
+  // remove old waves
+  activeWaves = activeWaves.filter(w=>w.x < W+100 && w.life < 6);
+
+  // collision/hit checking:
+  // When a wave crosses close to enemy.x, check λ match
+  for(const w of activeWaves){
+    for(const e of enemies){
+      if(!e.alive) continue;
+      const dx = Math.abs(w.x - e.x);
+      if(dx < 12 && w.life > 0.05){ // crossing moment
+        // Determine if user's λ matches enemy required λ within tolerance
+        const required = e.requiredLambda; // m
+        const tol = tolerancePercent / 100;
+        if(Math.abs(w.lambda - required) <= Math.max(0.001, required * tol)){
+          // hit!
+          e.alive = false;
+          score += 10;
+          document.getElementById('score').textContent = score;
+          // visual effect: spawn small pop
+          spawnPop(e.x, e.y);
+        } else {
+          // miss effect (shake)
+          e.wobble += 1.6;
+        }
+      }
+    }
+  }
+
+  // respawn occasionally
+  if(Math.random() < 0.01 + Math.max(0, 0.005*score/50)) {
+    if(enemies.length < 6) spawnEnemy();
+  }
+
+  render();
+  if(running) requestAnimationFrame(loop);
+}
+
+function showGameOver(){
+  // simple overlay
+  setTimeout(()=> {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#ffd97d';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Game Over', W/2, H/2 - 10);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '16px sans-serif';
+    ctx.fillText('รีเฟรชหน้าเพื่อเล่นซ้ำ', W/2, H/2 + 20);
+  }, 200);
+}
+
+/* simple pop particles */
+let pops = [];
+function spawnPop(x,y){
+  for(let i=0;i<8;i++){
+    pops.push({x,y,vx:(Math.random()-0.5)*80,vy:(Math.random()-0.8)*80,life:0});
+  }
+}
+
+/* render */
+function render(){
+  ctx.clearRect(0,0,W,H);
+  // background grid
+  ctx.fillStyle = '#071a21';
+  ctx.fillRect(0,0,W,H);
+
+  // draw ground line
+  ctx.strokeStyle = '#08323a';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(40,H-70); ctx.lineTo(W-20,H-70); ctx.stroke();
+
+  // draw cannon
+  drawCannon(50,H-120);
+
+  // draw enemies
+  for(const e of enemies){
+    if(!e.alive) continue;
+    drawEnemy(e);
+  }
+
+  // draw waves (visual sine)
+  for(const w of activeWaves) drawWave(w);
+
+  // draw pops
+  for(const p of pops){
+    p.x += p.vx * (1/60);
+    p.y += p.vy * (1/60);
+    p.vy += 80 * (1/60);
+    p.life += 1/60;
+  }
+  pops = pops.filter(p=>p.life < 0.7);
+  for(const p of pops){
+    ctx.fillStyle = `rgba(255,233,125,${1-p.life/0.7})`;
+    ctx.fillRect(p.x, p.y, 3, 3);
+  }
+
+  // HUD: show info on enemies (v and target lambda)
+  ctx.font = '13px sans-serif'; ctx.textAlign = 'left';
+  let y0 = 12;
+  ctx.fillStyle = '#dff6ff';
+  ctx.fillText('Shooter f = ' + f + ' Hz   (ปรับ f ได้ในโค้ด)', 12, y0);
+  ctx.fillStyle = '#9fb6c7';
+  ctx.fillText('Current medium: ' + currentMedium + '   (baseline v ≈ ' + mediums[currentMedium] + ' m/s)', 12, y0+18);
+
+  // display enemy labels
+  for(const e of enemies){
+    if(!e.alive) continue;
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('v=' + e.v_mps + ' m/s', e.x - 28, e.y - 24);
+    ctx.fillStyle = '#ffd97d';
+    ctx.fillText('λ_target=' + e.requiredLambda.toFixed(2) + ' m', e.x - 28, e.y - 10);
+  }
+}
+
+/* drawing helpers */
+function drawCannon(x,y){
+  // base
+  ctx.fillStyle = '#283f49';
+  ctx.fillRect(x-20,y+18,40,14);
+  // body
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.fillStyle = '#2f4f59';
+  ctx.beginPath(); ctx.arc(0,0,22,0,Math.PI*2); ctx.fill();
+  // muzzle
+  ctx.fillStyle = '#4b6a73';
+  ctx.fillRect(20,-8,40,16);
+  ctx.restore();
+}
+
+function drawEnemy(e){
+  // body circle with color based on v
+  const t = Math.min(1, (e.v_mps / (mediums['Steel'])));
+  const r = 18 + t*10;
+  // color ramp
+  const col = t > 0.6 ? '#ff7b7b' : (t>0.3 ? '#66d3ff' : '#7ef3a6');
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.ellipse(e.x, e.y, r, r + 8*Math.sin(e.wobble), 0, 0, Math.PI*2);
+  ctx.fill();
+  // eye
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(e.x + 6, e.y - 2, 6,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(e.x + 6, e.y - 2, 3,0,Math.PI*2); ctx.fill();
+}
+
+function drawWave(w){
+  // draw a sine ribbon centered at w.y
+  const pxPerMeter = 12; // visual scale for lambda -> pixel spacing
+  const lam_px = Math.max(6, w.lambda * pxPerMeter); // wavelength in px
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  const amplitude = 14;
+  const left = 0, right = W;
+  let first = true;
+  for(let X = left; X < right; X += 6){
+    const relative = (X - w.x);
+    const phase = (relative / lam_px) * (2*Math.PI) + w.phase;
+    const Y = w.y + Math.sin(phase) * amplitude;
+    if(first){ ctx.moveTo(X,Y); first=false; } else ctx.lineTo(X,Y);
+  }
+  ctx.strokeStyle = 'rgba(255,233,125,0.9)';
+  ctx.stroke();
+}
+
+/* Start loop */
+requestAnimationFrame(loop);
+
+/* Simple keyboard: space to fire */
+window.addEventListener('keydown', e=>{
+  if(e.code === 'Space') { e.preventDefault(); playerFire(); }
+});
+</script>
+</body>
+</html>
