@@ -1,177 +1,304 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="th">
 <head>
-<meta charset="utf-8">
-<title>Wave Shooter — Easy Physics</title>
-<style>
-  body{margin:0;font-family:"Comic Sans MS","Noto Sans Thai",sans-serif;background:#a7d9f7;color:#333;text-align:center}
-  canvas{background:#dff6ff;display:block;margin:0 auto;border-radius:12px}
-  h1{margin:10px 0;color:#ff6fa8}
-  #controls{margin:12px}
-  .btn{padding:10px 16px;margin:6px;border:none;border-radius:8px;font-weight:bold;cursor:pointer}
-  .correct{background:#8df59a}
-  .wrong{background:#f7a4a4}
-  .hud{margin:10px;font-size:18px}
-</style>
+  <meta charset="UTF-8">
+  <title>Wave Shooter in Space</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      margin: 0;
+      font-family: "Arial", sans-serif;
+      background: black;
+      color: #f7f1d1;
+      text-align: center;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      margin: 0 auto;
+      border-radius: 12px;
+      background: radial-gradient(circle at center, #000010 0%, #020a2a 100%);
+      box-shadow: 0 0 30px rgba(247, 241, 209, 0.3);
+    }
+    h1 {
+      margin: 10px 0;
+      text-shadow: 0 0 10px rgba(247, 241, 209, 0.5);
+    }
+    .hud {
+      margin: 10px;
+      font-size: 18px;
+      text-shadow: 0 0 5px rgba(0,0,0,0.5);
+    }
+    .btn {
+      padding: 12px 20px;
+      margin: 8px;
+      border: none;
+      border-radius: 25px;
+      font-weight: bold;
+      cursor: pointer;
+      background: linear-gradient(145deg, #1f3c70, #2a4f87);
+      color: #f7f1d1;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      transition: all 0.3s ease;
+    }
+    .btn:hover { transform: translateY(-2px); }
+    .correct { background: linear-gradient(145deg, #4ade80, #22c55e) !important; color:#000; }
+    .wrong { background: linear-gradient(145deg, #f87171, #ef4444) !important; color:#000; }
+    .screen {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.8);
+      padding: 30px;
+      border-radius: 15px;
+      box-shadow: 0 0 30px rgba(247, 241, 209, 0.5);
+      max-width: 90%;
+    }
+    .boss-hp {
+      width: 200px; height: 20px; background: #333;
+      border: 2px solid #fff; margin: 10px auto;
+      border-radius: 10px; overflow: hidden;
+    }
+    .boss-hp-bar { height: 100%; width: 100%; background: red; }
+  </style>
 </head>
 <body>
-<h1>Wave Shooter — λ · f · v</h1>
-<canvas id="c" width="800" height="300"></canvas>
-<div class="hud">
-  <span>Score: <span id="score">0</span></span> |
-  <span>Lives: <span id="lives">5</span></span> |
-  <span>f = <span id="fDisplay">10</span> Hz</span>
-</div>
-<div id="controls"></div>
-<script>
-const canvas=document.getElementById("c");
-const ctx=canvas.getContext("2d");
-const W=canvas.width,H=canvas.height;
+  <h1>🚀 Wave Shooter in Space 🌌</h1>
+  <canvas id="gameCanvas" width="600" height="700"></canvas>
+  <div class="hud">
+    <span>Score: <span id="score">0</span></span> |
+    <span>Lives: <span id="lives">5</span></span> |
+    <span>Wave: <span id="waveCount">1</span></span>
+  </div>
+  <div id="controls"></div>
+  <div id="gameScreen"></div>
 
-let score=0,lives=5;
-let f=10; // เริ่มต้นความถี่
-let currentEnemy=null;
-let answered=false, totalDefeated=0;
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
 
-// เอฟเฟกต์
-let waves=[];   // เก็บคลื่นยิง
-let explosions=[]; // เก็บระเบิด
+    const W = canvas.width, H = canvas.height;
+    const GUN_X = W / 2, GUN_Y = H - 80;
 
-function newEnemy(){
-  answered=false;
-  const v=100*(1+Math.floor(Math.random()*5));
-  const lambda=v/f;
-  currentEnemy={x:W-50,y:H/2,v,lambda,alive:true};
-  makeChoices(lambda);
-}
+    let score = 0, lives = 5, f = 10;
+    let currentEnemy = null, waves = [];
+    let totalDefeated = 0;
+    let gameStarted = false, gameEnded = false;
+    let answered = false, animTime = 0;
+    let isBoss = false, bossHP = 3;
 
-function makeChoices(correct){
-  const container=document.getElementById("controls");
-  container.innerHTML="";
-  let choices=[correct];
-  while(choices.length<3){
-    let wrong=correct+(Math.floor(Math.random()*5)-2)*5;
-    if(wrong<=0) continue;
-    if(!choices.includes(wrong)) choices.push(wrong);
-  }
-  choices.sort(()=>Math.random()-0.5);
-  for(let val of choices){
-    const btn=document.createElement("button");
-    btn.textContent="λ = "+val+" m";
-    btn.className="btn";
-    btn.onclick=()=>checkAnswer(val,correct,btn);
-    container.appendChild(btn);
-  }
-}
+    // ---- Enemy types ----
+    const enemyTypes = [
+      { emoji: "🛸", size: 30, speed: 1.5, points: 50, color: "#4ade80" },
+      { emoji: "👾", size: 28, speed: 2.0, points: 70, color: "#ff66cc" },
+      { emoji: "🤖", size: 32, speed: 1.2, points: 90, color: "#00f5ff" }
+    ];
 
-function checkAnswer(val,correct,btn){
-  if(answered) return;
-  answered=true;
-  if(val===correct){
-    btn.classList.add("correct");
-    score+=50;
-    totalDefeated++;
-    // ยิงคลื่น
-    fireWave();
-    setTimeout(()=>{
-      if(totalDefeated%5===0){
-        f=[10,20,25,50][(totalDefeated/5)%4]||10;
-      }
-    },1000);
-  }else{
-    btn.classList.add("wrong");
-    score-=10;
-  }
-  updateHUD();
-}
-
-function fireWave(){
-  waves.push({
-    x:100, y:H/2, t:0, speed:6
-  });
-}
-
-function explode(x,y){
-  for(let i=0;i<10;i++){
-    explosions.push({
-      x,y, r:2, dx:(Math.random()-0.5)*4, dy:(Math.random()-0.5)*4
-    });
-  }
-}
-
-function updateHUD(){
-  document.getElementById("score").textContent=score;
-  document.getElementById("lives").textContent=lives;
-  document.getElementById("fDisplay").textContent=f;
-}
-
-function gameOver(){
-  ctx.fillStyle="rgba(0,0,0,0.5)";
-  ctx.fillRect(0,0,W,H);
-  ctx.fillStyle="#fff";
-  ctx.font="28px Comic Sans MS";
-  ctx.fillText("Game Over!",W/2-80,H/2);
-}
-
-function loop(){
-  ctx.clearRect(0,0,W,H);
-
-  // ปืน
-  ctx.fillStyle="#ffb347";ctx.fillRect(40,H/2-20,40,40);
-  ctx.fillStyle="#ff6fa8";ctx.fillRect(80,H/2-10,30,20);
-
-  // ศัตรู
-  if(currentEnemy && currentEnemy.alive){
-    currentEnemy.x-=W/200/20;
-    ctx.fillStyle="#a77dff";
-    ctx.beginPath();ctx.arc(currentEnemy.x,currentEnemy.y,20,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle="#333";ctx.font="14px Comic Sans MS";
-    ctx.fillText("v="+currentEnemy.v+" m/s",currentEnemy.x-30,currentEnemy.y-30);
-    if(currentEnemy.x<90){
-      lives--;
+    // ---- Game start ----
+    function startGame() {
+      score = 0; lives = 5; totalDefeated = 0;
+      f = 10; bossHP = 3; isBoss = false;
+      gameStarted = true; gameEnded = false;
+      document.getElementById("gameScreen").innerHTML = "";
       updateHUD();
       newEnemy();
-      if(lives<=0){gameOver();return;}
+      gameLoop();
     }
-  }
 
-  // คลื่น
-  for(let wv of waves){
-    wv.x+=wv.speed;
-    wv.t+=0.2;
-    ctx.beginPath();
-    ctx.moveTo(wv.x-60,wv.y);
-    for(let i=0;i<60;i++){
-      let xx=wv.x+i;
-      let yy=wv.y+Math.sin((i+wv.t)/5)*10;
-      ctx.lineTo(xx,yy);
+    // ---- New enemy / boss ----
+    function newEnemy() {
+      answered = false;
+      if (Math.floor(totalDefeated/5) === 2 && !isBoss) { // wave 3 = boss
+        spawnBoss();
+        return;
+      }
+      const vList = [100,150,200,250,300];
+      const v = vList[Math.floor(Math.random()*vList.length)];
+      const lambda = Math.round(v / f);
+      const type = enemyTypes[Math.floor(Math.random()*enemyTypes.length)];
+      currentEnemy = { x:Math.random()*W, y:60, v, lambda, alive:true, ...type };
+      makeChoices(lambda);
     }
-    ctx.strokeStyle="#00c4ff";
-    ctx.lineWidth=2;
-    ctx.stroke();
-    // ชนศัตรู
-    if(currentEnemy && currentEnemy.alive && wv.x>currentEnemy.x-20){
-      currentEnemy.alive=false;
-      explode(currentEnemy.x,currentEnemy.y);
-      setTimeout(()=>newEnemy(),800);
+
+    function spawnBoss() {
+      isBoss = true; bossHP = 3;
+      const v = 300, lambda = Math.round(v/f);
+      currentEnemy = { x:W/2, y:120, v, lambda, alive:true, emoji:"👹", size:60, speed:0, points:500, color:"#ff0000" };
+      makeChoices(lambda,true);
     }
-  }
 
-  // เอฟเฟกต์ระเบิด
-  explosions.forEach(ex=>{
-    ex.x+=ex.dx; ex.y+=ex.dy; ex.r+=0.5;
-    ctx.beginPath();
-    ctx.arc(ex.x,ex.y,ex.r,0,Math.PI*2);
-    ctx.fillStyle="rgba(255,255,0,0.6)";
-    ctx.fill();
-  });
+    // ---- Choices ----
+    function makeChoices(correct,isBossMode=false) {
+      const container = document.getElementById("controls");
+      container.innerHTML = "";
+      let choices = [correct];
+      while (choices.length < 3) {
+        let wrong = correct + (Math.floor(Math.random()*7)-3)*5;
+        if (wrong<=0 || choices.includes(wrong)) continue;
+        choices.push(wrong);
+      }
+      choices.sort(()=>Math.random()-0.5);
+      for (let val of choices) {
+        const btn = document.createElement("button");
+        btn.textContent = "λ = " + val + " m";
+        btn.className = "btn";
+        btn.onclick = ()=>checkAnswer(val,correct,btn,isBossMode);
+        container.appendChild(btn);
+      }
+    }
 
-  requestAnimationFrame(loop);
-}
-updateHUD();
-newEnemy();
-loop();
-</script>
+    // ---- Check answer ----
+    function checkAnswer(val, correct, btn, boss=false) {
+      if (answered) return;
+      answered = true;
+      const buttons = document.querySelectorAll('.btn');
+      buttons.forEach(b=>{
+        if(b.textContent.includes(correct+"")) b.classList.add("correct");
+        else if(b===btn && val!==correct) b.classList.add("wrong");
+      });
+
+      if (val===correct) {
+        if (boss) {
+          bossHP--;
+          fireWave();
+          if (bossHP<=0) {
+            score+=currentEnemy.points;
+            currentEnemy.alive=false;
+            isBoss=false;
+            setTimeout(()=>newEnemy(),2000);
+          } else {
+            setTimeout(()=>makeChoices(correct,true),1500);
+          }
+        } else {
+          score+=currentEnemy.points;
+          totalDefeated++;
+          fireWave();
+          setTimeout(()=>newEnemy(),1500);
+        }
+      } else {
+        lives--;
+        if (lives<=0) { gameOver(); return; }
+        setTimeout(()=>newEnemy(),2000);
+      }
+      updateHUD();
+    }
+
+    // ---- Fire wave ----
+    function fireWave() {
+      if (!currentEnemy) return;
+      const dx=currentEnemy.x-GUN_X, dy=currentEnemy.y-GUN_Y;
+      const angle=Math.atan2(dy,dx);
+      waves.push({x:GUN_X,y:GUN_Y,angle,speed:6,phase:0,trail:[]});
+    }
+
+    // ---- HUD ----
+    function updateHUD() {
+      document.getElementById("score").textContent=score;
+      document.getElementById("lives").textContent=lives;
+      document.getElementById("waveCount").textContent=Math.floor(totalDefeated/5)+1;
+    }
+
+    // ---- Game over ----
+    function gameOver() {
+      gameEnded=true; gameStarted=false;
+      document.getElementById("gameScreen").innerHTML=`
+        <div class="screen">
+          <h2>💀 Game Over! 💀</h2>
+          <p>Final Score: ${score}</p>
+          <button class="btn" onclick="showKnowledge()">สรุปความรู้เรื่องคลื่น</button>
+          <button class="btn" onclick="startGame()">เล่นอีกครั้ง</button>
+        </div>`;
+    }
+
+    // ---- Knowledge screen ----
+    function showKnowledge() {
+      document.getElementById("gameScreen").innerHTML=`
+        <div class="screen">
+          <h2>📖 ความรู้เรื่องคลื่น</h2>
+          <p>🌊 <b>คลื่น</b> คือ การถ่ายทอดพลังงานจากที่หนึ่งไปยังอีกที่หนึ่ง โดยไม่ถ่ายโอนสสาร</p>
+          <p>📌 <b>ความถี่ (f)</b> = จำนวนรอบต่อวินาที (Hz)</p>
+          <p>📌 <b>ความยาวคลื่น (λ)</b> = ระยะทางระหว่างยอดคลื่น (m)</p>
+          <p>📌 <b>ความเร็วคลื่น (v)</b> = ระยะที่คลื่นเคลื่อนใน 1 วินาที (m/s)</p>
+          <p>สูตรสำคัญ: <b>v = f × λ</b></p>
+          <button class="btn" onclick="startGame()">เล่นใหม่</button>
+        </div>`;
+    }
+
+    // ---- Game loop ----
+    function gameLoop() {
+      if (!gameStarted||gameEnded) return;
+      animTime+=0.016;
+      ctx.clearRect(0,0,W,H);
+
+      // draw stars
+      for(let i=0;i<50;i++){
+        ctx.fillStyle="white";
+        ctx.fillRect(Math.random()*W,Math.random()*H,1,1);
+      }
+
+      if(currentEnemy&&currentEnemy.alive) drawEnemy();
+      waves.forEach(w=>{updateWave(w);drawWave(w);});
+      drawGun();
+      if(isBoss) drawBossHP();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // ---- Draw enemy ----
+    function drawEnemy() {
+      ctx.fillStyle=currentEnemy.color;
+      ctx.beginPath();
+      ctx.arc(currentEnemy.x,currentEnemy.y,currentEnemy.size,0,Math.PI*2);
+      ctx.fill();
+      ctx.font=`${currentEnemy.size}px Arial`;
+      ctx.textAlign="center";
+      ctx.fillText(currentEnemy.emoji,currentEnemy.x,currentEnemy.y+10);
+      ctx.fillStyle="#ff0";
+      ctx.fillText("v="+currentEnemy.v+" m/s",currentEnemy.x,currentEnemy.y+currentEnemy.size+20);
+    }
+
+    function drawBossHP(){
+      const barW=200*(bossHP/3);
+      ctx.fillStyle="red";
+      ctx.fillRect(W/2-100,H-680,barW,15);
+      ctx.strokeStyle="#fff";ctx.strokeRect(W/2-100,H-680,200,15);
+    }
+
+    // ---- Wave ----
+    function updateWave(w){
+      w.x+=Math.cos(w.angle)*w.speed;
+      w.y+=Math.sin(w.angle)*w.speed;
+      w.phase+=0.3;
+    }
+    function drawWave(w){
+      ctx.strokeStyle="#4ade80";ctx.lineWidth=2;
+      ctx.beginPath();
+      ctx.arc(w.x,w.y,8,0,Math.PI*2);ctx.stroke();
+    }
+
+    // ---- Gun ----
+    function drawGun(){
+      if(!currentEnemy)return;
+      const dx=currentEnemy.x-GUN_X, dy=currentEnemy.y-GUN_Y;
+      const angle=Math.atan2(dy,dx);
+      ctx.save();
+      ctx.translate(GUN_X,GUN_Y);ctx.rotate(angle);
+      ctx.fillStyle="gray";ctx.fillRect(0,-8,40,16);
+      ctx.restore();
+      ctx.fillStyle="#00f5ff";ctx.font="14px Arial";
+      ctx.fillText("f="+f+" Hz",GUN_X,GUN_Y-45);
+    }
+
+    // ---- Start screen ----
+    function showStart(){
+      document.getElementById("gameScreen").innerHTML=`
+        <div class="screen">
+          <h2>🚀 Wave Shooter in Space 🌌</h2>
+          <p>คำนวณความยาวคลื่น (λ) จากสูตร λ = v / f</p>
+          <button class="btn" onclick="startGame()">เริ่มเกม</button>
+        </div>`;
+    }
+    showStart();
+    updateHUD();
+  </script>
 </body>
 </html>
-
